@@ -1,0 +1,6 @@
+[package]
+name = "morpho_rust_snippets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
