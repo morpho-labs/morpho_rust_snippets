@@ -1,12 +1,17 @@
+use crate::arithmetic::{w_mul_down, w_taylor_compounded};
+use alloy::providers::WsConnect;
+use alloy::transports::http::reqwest::Url;
 use alloy::{
     eips::BlockNumberOrTag,
-    primitives::{address, B256},
+    primitives::{address, B256, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::Filter,
     sol,
     sol_types::SolEvent,
 };
 use eyre::Result;
+use futures_util::stream::StreamExt;
+use std::time::{SystemTime, UNIX_EPOCH};
 use IIRM::{Market, MarketParams};
 
 // Code gen
@@ -27,16 +32,15 @@ sol!(
     "data/abis/adaptive_curve_irm.json"
 );
 
-pub async fn get_market() -> Result<()> {
-    let rpc_url = "https://eth.merkle.io".parse()?;
+pub async fn retrieve_market_info(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
-    // This morpho contract contains all markets and positions
+    // The morpho contract address (it contains all positions)
     let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
     let morpho = IMorpho::new(morpho_address, provider.clone());
 
     // Getting market information
-
+    // You can change this market id
     let market_id: B256 =
         "0xb48bb53f0f2690c71e8813f2dc7ed6fca9ac4b0ace3faa37b4a8e5ece38fa1a2".parse()?; // USD0++/USDC (86%) with AdaptiveCurve
     let market_params = morpho.idToMarketParams(market_id).call().await?;
@@ -54,6 +58,7 @@ pub async fn get_market() -> Result<()> {
         market_params.oracle,
         market_params.irm
     );
+
     // Note that some interest might be lacking
     println!(
         "Market Data:\n- Fee: {} \n- Total borrow assets: {} \n- Total borrow shares: {} \n- Total supply assets: {} \n- Total supply shares: {}",
@@ -98,8 +103,28 @@ pub async fn get_market() -> Result<()> {
         borrow_rate
     );
 
-    // Getting a user position on this market
+    // Compute updated market total with interest
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let elapsed = U256::from(current_time) - U256::from(market_data.lastUpdate);
+    let interest = w_mul_down(
+        U256::from(market_data.totalBorrowAssets),
+        w_taylor_compounded(borrow_rate, elapsed),
+    );
 
+    println!(
+        "Market has {} pending interest since last update at {}, now it's {} so total supply asset will be {} and total borrow asset will be {}",
+         interest,
+         market_data.lastUpdate,
+        current_time,
+         U256::from(market_data.totalSupplyAssets)+interest,
+         U256::from(market_data.totalBorrowAssets)+interest
+    );
+
+    // Getting a user position on this market
+    // You can change this user
     let user = address!("171c53d55B1BCb725F660677d9e8BAd7fD084282");
     let position = morpho.position(market_id, user).call().await?;
 
@@ -110,16 +135,17 @@ pub async fn get_market() -> Result<()> {
     Ok(())
 }
 
-pub async fn read_events() -> Result<()> {
-    let rpc_url = "http://192.168.1.224:8545".parse()?;
+pub async fn retrieve_events_with_logs(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
-    // This morpho contract contains all markets and positions
+    // The morpho contract address
     let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
 
+    // You can change the block range (the script fails if there is too much logs on a range)
     let filter = Filter::new()
         .address(morpho_address)
-        .from_block(BlockNumberOrTag::Number(21_200_000));
+        .from_block(BlockNumberOrTag::Number(21_250_000))
+        .to_block(BlockNumberOrTag::Number(21_260_000));
 
     let logs = provider.get_logs(&filter).await?;
 
@@ -133,14 +159,256 @@ pub async fn read_events() -> Result<()> {
                     id, marketParams.collateralToken, marketParams.loanToken, marketParams.lltv, marketParams.oracle, marketParams.irm
                 );
             }
-            Some(&IMorpho::Supply::SIGNATURE_HASH) => {}
-            Some(&IMorpho::Withdraw::SIGNATURE_HASH) => {}
-            Some(&IMorpho::Borrow::SIGNATURE_HASH) => {}
-            Some(&IMorpho::Repay::SIGNATURE_HASH) => {}
-            Some(&IMorpho::SupplyCollateral::SIGNATURE_HASH) => {}
-            Some(&IMorpho::WithdrawCollateral::SIGNATURE_HASH) => {}
-            Some(&IMorpho::Liquidate::SIGNATURE_HASH) => {}
-            // Miss SetOwner, SetFee, SetFeeRecipient, EnableIrm, EnableLltv, FlashLoan, SetAuthorization, IncrementNonce, AccrueInterest
+            Some(&IMorpho::Supply::SIGNATURE_HASH) => {
+                let IMorpho::Supply {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} supplied {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Withdraw::SIGNATURE_HASH) => {
+                let IMorpho::Withdraw {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    receiver: _receiver,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} withdrew {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Borrow::SIGNATURE_HASH) => {
+                let IMorpho::Borrow {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    receiver: _receiver,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} borrowed {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Repay::SIGNATURE_HASH) => {
+                let IMorpho::Repay {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} repaid {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::SupplyCollateral::SIGNATURE_HASH) => {
+                let IMorpho::SupplyCollateral {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    assets,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} supplied {} assets as collateral on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::WithdrawCollateral::SIGNATURE_HASH) => {
+                let IMorpho::WithdrawCollateral {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    receiver: _receiver,
+                    assets,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} withdrew {} assets as collateral on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Liquidate::SIGNATURE_HASH) => {
+                let IMorpho::Liquidate {
+                    id,
+                    caller,
+                    borrower,
+                    repaidAssets: _repaid_assets,
+                    repaidShares: _repaid_shares,
+                    seizedAssets: _seized_assets,
+                    badDebtAssets: _bad_debt_assets,
+                    badDebtShares: _bad_debt_shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} was liquidated by user {:#20x} on market {:#32x}",
+                    borrower, caller, id
+                );
+            }
+            // Miss SetOwner, SetFee, SetFeeRecipient, EnableIrm, EnableLltv, FlashLoan, SetAuthorization, IncrementNonce, AccrueInterest events
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+pub async fn retrieve_markets(rpc_url: Url) -> Result<()> {
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+
+    // The morpho contract address
+    let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
+
+    let filter = Filter::new()
+        .address(morpho_address)
+        .from_block(BlockNumberOrTag::Number(18_883_124))
+        .event_signature(IMorpho::CreateMarket::SIGNATURE_HASH);
+
+    let logs = provider.get_logs(&filter).await?;
+    for log in logs {
+        match log.topic0() {
+            Some(&IMorpho::CreateMarket::SIGNATURE_HASH) => {
+                let IMorpho::CreateMarket { id, marketParams } = log.log_decode()?.inner.data;
+                println!(
+                    "Market with id {:#32x} was created with params: {:#20x}, {:#20x}, {}, {:#20x}, {:#20x}",
+                    id, marketParams.collateralToken, marketParams.loanToken, marketParams.lltv, marketParams.oracle, marketParams.irm
+                );
+            }
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+pub async fn subscribe_to_event_logs(rpc_url: &str) -> Result<()> {
+    //let ws = WsConnect::new(rpc_url);
+    let provider = ProviderBuilder::new()
+        .on_ws(WsConnect::new(rpc_url))
+        .await?;
+
+    // The morpho contract address
+    let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
+
+    let filter = Filter::new()
+        .address(morpho_address)
+        .from_block(BlockNumberOrTag::Latest);
+
+    let sub = provider.subscribe_logs(&filter).await?;
+    let mut stream = sub.into_stream();
+
+    while let Some(log) = stream.next().await {
+        match log.topic0() {
+            Some(&IMorpho::CreateMarket::SIGNATURE_HASH) => {
+                let IMorpho::CreateMarket { id, marketParams } = log.log_decode()?.inner.data;
+                println!(
+                    "Market with id {:#32x} was created with params: {:#20x}, {:#20x}, {}, {:#20x}, {:#20x}",
+                    id, marketParams.collateralToken, marketParams.loanToken, marketParams.lltv, marketParams.oracle, marketParams.irm
+                );
+            }
+            Some(&IMorpho::Supply::SIGNATURE_HASH) => {
+                let IMorpho::Supply {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} supplied {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Withdraw::SIGNATURE_HASH) => {
+                let IMorpho::Withdraw {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    receiver: _receiver,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} withdrew {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Borrow::SIGNATURE_HASH) => {
+                let IMorpho::Borrow {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    receiver: _receiver,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} borrowed {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Repay::SIGNATURE_HASH) => {
+                let IMorpho::Repay {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    assets,
+                    shares: _shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} repaid {} assets on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::SupplyCollateral::SIGNATURE_HASH) => {
+                let IMorpho::SupplyCollateral {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    assets,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} supplied {} assets as collateral on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::WithdrawCollateral::SIGNATURE_HASH) => {
+                let IMorpho::WithdrawCollateral {
+                    id,
+                    caller: _caller,
+                    onBehalf,
+                    receiver: _receiver,
+                    assets,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} withdrew {} assets as collateral on market {:#32x}",
+                    onBehalf, assets, id
+                );
+            }
+            Some(&IMorpho::Liquidate::SIGNATURE_HASH) => {
+                let IMorpho::Liquidate {
+                    id,
+                    caller,
+                    borrower,
+                    repaidAssets: _repaid_assets,
+                    repaidShares: _repaid_shares,
+                    seizedAssets: _seized_assets,
+                    badDebtAssets: _bad_debt_assets,
+                    badDebtShares: _bad_debt_shares,
+                } = log.log_decode()?.inner.data;
+                println!(
+                    "User {:#20x} was liquidated by user {:#20x} on market {:#32x}",
+                    borrower, caller, id
+                );
+            }
+            // Miss SetOwner, SetFee, SetFeeRecipient, EnableIrm, EnableLltv, FlashLoan, SetAuthorization, IncrementNonce, AccrueInterest events
             _ => (),
         }
     }
