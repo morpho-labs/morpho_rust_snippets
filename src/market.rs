@@ -1,3 +1,4 @@
+use alloy::providers::WsConnect;
 use alloy::transports::http::reqwest::Url;
 use alloy::{
     eips::BlockNumberOrTag,
@@ -8,6 +9,7 @@ use alloy::{
     sol_types::SolEvent,
 };
 use eyre::Result;
+use futures_util::stream::StreamExt;
 use IIRM::{Market, MarketParams};
 // Code gen
 sol!(
@@ -123,6 +125,45 @@ pub async fn read_events_with_get_logs(rpc_url: Url) -> Result<()> {
 
     println!("Got {} logs", logs.len());
     for log in logs {
+        match log.topic0() {
+            Some(&IMorpho::CreateMarket::SIGNATURE_HASH) => {
+                let IMorpho::CreateMarket { id, marketParams } = log.log_decode()?.inner.data;
+                println!(
+                    "Market with id {:#32x} was created with params: {:#20x}, {:#20x}, {}, {:#20x}, {:#20x}",
+                    id, marketParams.collateralToken, marketParams.loanToken, marketParams.lltv, marketParams.oracle, marketParams.irm
+                );
+            }
+            Some(&IMorpho::Supply::SIGNATURE_HASH) => {}
+            Some(&IMorpho::Withdraw::SIGNATURE_HASH) => {}
+            Some(&IMorpho::Borrow::SIGNATURE_HASH) => {}
+            Some(&IMorpho::Repay::SIGNATURE_HASH) => {}
+            Some(&IMorpho::SupplyCollateral::SIGNATURE_HASH) => {}
+            Some(&IMorpho::WithdrawCollateral::SIGNATURE_HASH) => {}
+            Some(&IMorpho::Liquidate::SIGNATURE_HASH) => {}
+            // Miss SetOwner, SetFee, SetFeeRecipient, EnableIrm, EnableLltv, FlashLoan, SetAuthorization, IncrementNonce, AccrueInterest
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+pub async fn listen_to_logs(rpc_url: &str) -> Result<()> {
+    //let ws = WsConnect::new(rpc_url);
+    let provider = ProviderBuilder::new()
+        .on_ws(WsConnect::new(rpc_url))
+        .await?;
+
+    // This morpho contract contains all markets and positions
+    let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
+
+    let filter = Filter::new()
+        .address(morpho_address)
+        .from_block(BlockNumberOrTag::Number(21_250_000));
+
+    let sub = provider.subscribe_logs(&filter).await?;
+    let mut stream = sub.into_stream();
+
+    while let Some(log) = stream.next().await {
         match log.topic0() {
             Some(&IMorpho::CreateMarket::SIGNATURE_HASH) => {
                 let IMorpho::CreateMarket { id, marketParams } = log.log_decode()?.inner.data;
