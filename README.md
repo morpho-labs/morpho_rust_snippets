@@ -27,4 +27,4 @@ Rust and Cargo.
 Run the main file with
 ```
 cargo run
-``
+```
