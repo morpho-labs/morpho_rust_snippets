@@ -24,6 +24,7 @@ sol!(
 pub async fn retrieve_vault_details(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
+    // This is a valid morpho vault address on Ethereum (Steakhouse USDC)
     let vault_address = address!("BEEF01735c132Ada46AA9aA4c54623cAA92A64CB"); // Steakhouse USDC
     let vault = IVault::new(vault_address, provider.clone());
 
@@ -34,13 +35,13 @@ pub async fn retrieve_vault_details(rpc_url: Url) -> Result<()> {
     Ok(())
 }
 
-pub async fn fetch_vault_activity_details(rpc_url: Url) -> Result<()> {
+pub async fn retrieve_vault_activity_details(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
     // This is a valid morpho vault address on Ethereum (Steakhouse USDC)
     let vault_address = address!("BEEF01735c132Ada46AA9aA4c54623cAA92A64CB");
 
-    // Filter over factory since deployment
+    // Vault activity on a specific block range
     let filter = Filter::new()
         .address(vault_address)
         .from_block(BlockNumberOrTag::Number(21_200_000))
@@ -103,7 +104,7 @@ pub async fn fetch_vault_activity_details(rpc_url: Url) -> Result<()> {
     Ok(())
 }
 
-pub async fn fetch_vaults(rpc_url: Url) -> Result<()> {
+pub async fn retrieve_vaults(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
     // This factory emits an event when a vault is deployed

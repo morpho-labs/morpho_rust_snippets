@@ -40,7 +40,7 @@ pub async fn retrieve_market_info(rpc_url: Url) -> Result<()> {
     let morpho = IMorpho::new(morpho_address, provider.clone());
 
     // Getting market information
-
+    // You can change this market id
     let market_id: B256 =
         "0xb48bb53f0f2690c71e8813f2dc7ed6fca9ac4b0ace3faa37b4a8e5ece38fa1a2".parse()?; // USD0++/USDC (86%) with AdaptiveCurve
     let market_params = morpho.idToMarketParams(market_id).call().await?;
@@ -58,6 +58,7 @@ pub async fn retrieve_market_info(rpc_url: Url) -> Result<()> {
         market_params.oracle,
         market_params.irm
     );
+
     // Note that some interest might be lacking
     println!(
         "Market Data:\n- Fee: {} \n- Total borrow assets: {} \n- Total borrow shares: {} \n- Total supply assets: {} \n- Total supply shares: {}",
@@ -121,8 +122,9 @@ pub async fn retrieve_market_info(rpc_url: Url) -> Result<()> {
          U256::from(market_data.totalSupplyAssets)+interest,
          U256::from(market_data.totalBorrowAssets)+interest
     );
-    // Getting a user position on this market
 
+    // Getting a user position on this market
+    // You can change this user
     let user = address!("171c53d55B1BCb725F660677d9e8BAd7fD084282");
     let position = morpho.position(market_id, user).call().await?;
 
@@ -139,7 +141,7 @@ pub async fn retrieve_events_with_logs(rpc_url: Url) -> Result<()> {
     // The morpho contract address
     let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
 
-    // Change the block
+    // You can change the block range (the script fails if there is too much logs on a range)
     let filter = Filter::new()
         .address(morpho_address)
         .from_block(BlockNumberOrTag::Number(21_250_000))
@@ -253,6 +255,33 @@ pub async fn retrieve_events_with_logs(rpc_url: Url) -> Result<()> {
                 );
             }
             // Miss SetOwner, SetFee, SetFeeRecipient, EnableIrm, EnableLltv, FlashLoan, SetAuthorization, IncrementNonce, AccrueInterest events
+            _ => (),
+        }
+    }
+    Ok(())
+}
+
+pub async fn retrieve_markets(rpc_url: Url) -> Result<()> {
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+
+    // The morpho contract address
+    let morpho_address = address!("BBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb");
+
+    let filter = Filter::new()
+        .address(morpho_address)
+        .from_block(BlockNumberOrTag::Number(18_883_124))
+        .event_signature(IMorpho::CreateMarket::SIGNATURE_HASH);
+
+    let logs = provider.get_logs(&filter).await?;
+    for log in logs {
+        match log.topic0() {
+            Some(&IMorpho::CreateMarket::SIGNATURE_HASH) => {
+                let IMorpho::CreateMarket { id, marketParams } = log.log_decode()?.inner.data;
+                println!(
+                    "Market with id {:#32x} was created with params: {:#20x}, {:#20x}, {}, {:#20x}, {:#20x}",
+                    id, marketParams.collateralToken, marketParams.loanToken, marketParams.lltv, marketParams.oracle, marketParams.irm
+                );
+            }
             _ => (),
         }
     }
