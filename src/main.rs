@@ -1,9 +1,9 @@
 use alloy::transports::http::reqwest::Url;
 use eyre::Result;
 mod api;
+mod arithmetic;
 mod market;
 mod vault;
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let rpc_url: Url =

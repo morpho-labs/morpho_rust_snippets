@@ -1,9 +1,9 @@
-use alloy::consensus::Block;
+use crate::arithmetic::{w_mul_down, w_taylor_compounded};
 use alloy::providers::WsConnect;
 use alloy::transports::http::reqwest::Url;
 use alloy::{
     eips::BlockNumberOrTag,
-    primitives::{address, B256},
+    primitives::{address, B256, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::Filter,
     sol,
@@ -11,7 +11,9 @@ use alloy::{
 };
 use eyre::Result;
 use futures_util::stream::StreamExt;
+use std::time::{SystemTime, UNIX_EPOCH};
 use IIRM::{Market, MarketParams};
+
 // Code gen
 sol!(
     #[sol(rpc)]
@@ -100,6 +102,25 @@ pub async fn retrieve_market_info(rpc_url: Url) -> Result<()> {
         borrow_rate
     );
 
+    // Compute updated market total with interest
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let elapsed = U256::from(current_time) - U256::from(market_data.lastUpdate);
+    let interest = w_mul_down(
+        U256::from(market_data.totalBorrowAssets),
+        w_taylor_compounded(borrow_rate, elapsed),
+    );
+
+    println!(
+        "Market has {} pending interest since last update at {}, now it's {} so total supply asset will be {} and total borrow asset will be {}",
+         interest,
+         market_data.lastUpdate,
+        current_time,
+         U256::from(market_data.totalSupplyAssets)+interest,
+         U256::from(market_data.totalBorrowAssets)+interest
+    );
     // Getting a user position on this market
 
     let user = address!("171c53d55B1BCb725F660677d9e8BAd7fD084282");
