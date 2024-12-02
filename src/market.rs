@@ -1,3 +1,4 @@
+use alloy::transports::http::reqwest::Url;
 use alloy::{
     eips::BlockNumberOrTag,
     primitives::{address, B256},
@@ -8,7 +9,6 @@ use alloy::{
 };
 use eyre::Result;
 use IIRM::{Market, MarketParams};
-
 // Code gen
 sol!(
     #[sol(rpc)]
@@ -27,8 +27,7 @@ sol!(
     "data/abis/adaptive_curve_irm.json"
 );
 
-pub async fn get_market() -> Result<()> {
-    let rpc_url = "https://eth.merkle.io".parse()?;
+pub async fn get_market(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
     // This morpho contract contains all markets and positions
@@ -110,8 +109,7 @@ pub async fn get_market() -> Result<()> {
     Ok(())
 }
 
-pub async fn read_events() -> Result<()> {
-    let rpc_url = "http://192.168.1.224:8545".parse()?;
+pub async fn read_events_with_get_logs(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
     // This morpho contract contains all markets and positions
@@ -119,7 +117,7 @@ pub async fn read_events() -> Result<()> {
 
     let filter = Filter::new()
         .address(morpho_address)
-        .from_block(BlockNumberOrTag::Number(21_200_000));
+        .from_block(BlockNumberOrTag::Number(21_250_000));
 
     let logs = provider.get_logs(&filter).await?;
 
