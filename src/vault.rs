@@ -21,7 +21,7 @@ sol!(
     "data/abis/morpho_vault_factory.json"
 );
 
-pub async fn get_vault_data(rpc_url: Url) -> Result<()> {
+pub async fn retrieve_vault_details(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
     let vault_address = address!("BEEF01735c132Ada46AA9aA4c54623cAA92A64CB"); // Steakhouse USDC
@@ -34,11 +34,11 @@ pub async fn get_vault_data(rpc_url: Url) -> Result<()> {
     Ok(())
 }
 
-pub async fn get_vault_activity(rpc_url: Url) -> Result<()> {
+pub async fn fetch_vault_activity_details(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
-    // This morpho contract contains all markets and positions
-    let vault_address = address!("BEEF01735c132Ada46AA9aA4c54623cAA92A64CB"); // Steakhouse USDC
+    // This is a valid morpho vault address on Ethereum (Steakhouse USDC)
+    let vault_address = address!("BEEF01735c132Ada46AA9aA4c54623cAA92A64CB");
 
     // Filter over factory since deployment
     let filter = Filter::new()
@@ -103,10 +103,10 @@ pub async fn get_vault_activity(rpc_url: Url) -> Result<()> {
     Ok(())
 }
 
-pub async fn read_vaults(rpc_url: Url) -> Result<()> {
+pub async fn fetch_vaults(rpc_url: Url) -> Result<()> {
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
-    // This morpho contract contains all markets and positions
+    // This factory emits an event when a vault is deployed
     let vault_factory_address = address!("A9c3D3a366466Fa809d1Ae982Fb2c46E5fC41101");
 
     // Filter over factory since deployment
