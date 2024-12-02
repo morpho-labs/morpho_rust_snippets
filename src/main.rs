@@ -4,6 +4,7 @@ mod api;
 mod arithmetic;
 mod market;
 mod vault;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let rpc_url: Url =
@@ -16,6 +17,9 @@ async fn main() -> Result<()> {
     vault::retrieve_vault_details(rpc_url.clone()).await?;
     vault::fetch_vaults(rpc_url.clone()).await?;
     vault::fetch_vault_activity_details(rpc_url.clone()).await?;
+
+    let prices = api::get_usd_prices().await?;
+    println!("{:?}", prices);
 
     Ok(())
 }
